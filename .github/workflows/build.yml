@@ -1,0 +1,60 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          uname -m
+          swift --version
+
+      - name: Build
+        run: swift build -c release
+
+      - name: Test
+        run: swift test
+
+      - name: Run the probe
+        # The build machine is virtual and has no real sensors, so this only
+        # proves that every source fails cleanly instead of crashing.
+        run: .build/release/vitals-probe
+
+      - name: Assemble the app
+        env:
+          VITALS_BUILD: ${{ github.run_number }}
+        run: |
+          ./scripts/make-app.sh
+          ditto -c -k --keepParent Vitals.app Vitals.zip
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vitals
+          path: Vitals.zip
+
+      - name: Publish the download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest Vitals.zip \
+            --title "Vitals build ${{ github.run_number }}" \
+            --notes "Built automatically from commit ${{ github.sha }}." \
+            --target "${{ github.sha }}"
