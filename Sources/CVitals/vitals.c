@@ -163,14 +163,16 @@ int vitals_smc_key_at(uint32_t connection, uint32_t index, char *key) {
 
 // ===== HID temperature sensors ==========================================
 //
-// Private IOKit functions, declared here with opaque types so they cannot
-// clash with the public IOKit headers.
+// IOHIDEventSystemClientCopyServices and IOHIDServiceClientCopyProperty are
+// public and come from the headers below. The four functions declared here
+// are private; they use the public reference types so nothing clashes.
 
-extern CFTypeRef IOHIDEventSystemClientCreate(CFAllocatorRef allocator);
-extern int IOHIDEventSystemClientSetMatching(CFTypeRef client, CFDictionaryRef match);
-extern CFArrayRef IOHIDEventSystemClientCopyServices(CFTypeRef client);
-extern CFTypeRef IOHIDServiceClientCopyProperty(CFTypeRef service, CFStringRef property);
-extern CFTypeRef IOHIDServiceClientCopyEvent(CFTypeRef service, int64_t type, int32_t options, int64_t timestamp);
+#include <IOKit/hidsystem/IOHIDEventSystemClient.h>
+#include <IOKit/hidsystem/IOHIDServiceClient.h>
+
+extern IOHIDEventSystemClientRef IOHIDEventSystemClientCreate(CFAllocatorRef allocator);
+extern int IOHIDEventSystemClientSetMatching(IOHIDEventSystemClientRef client, CFDictionaryRef match);
+extern CFTypeRef IOHIDServiceClientCopyEvent(IOHIDServiceClientRef service, int64_t type, int32_t options, int64_t timestamp);
 extern double IOHIDEventGetFloatValue(CFTypeRef event, int32_t field);
 
 #define HID_EVENT_TYPE_TEMPERATURE 15
@@ -182,7 +184,7 @@ static struct {
     double celsius;
 } g_hid[HID_MAX_SENSORS];
 static int g_hid_count = 0;
-static CFTypeRef g_hid_client = NULL;
+static IOHIDEventSystemClientRef g_hid_client = NULL;
 
 int vitals_hid_refresh(void) {
     g_hid_count = 0;
@@ -207,7 +209,7 @@ int vitals_hid_refresh(void) {
     if (!services) return 0;
     CFIndex total = CFArrayGetCount(services);
     for (CFIndex i = 0; i < total && g_hid_count < HID_MAX_SENSORS; i++) {
-        CFTypeRef service = CFArrayGetValueAtIndex(services, i);
+        IOHIDServiceClientRef service = (IOHIDServiceClientRef)CFArrayGetValueAtIndex(services, i);
         if (!service) continue;
         CFTypeRef event = IOHIDServiceClientCopyEvent(service, HID_EVENT_TYPE_TEMPERATURE, 0, 0);
         if (!event) continue;
