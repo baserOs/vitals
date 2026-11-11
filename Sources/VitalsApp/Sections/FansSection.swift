@@ -6,7 +6,7 @@ struct FansSection: View {
     let snapshot: Snapshot
 
     var body: some View {
-        SectionCard(title: "Fans", trailing: snapshot.fastestFan.map { Format.rpm($0.rpm) }) {
+        SectionCard(title: "Fans", icon: "fan", tint: .teal, trailing: snapshot.fastestFan.map { Format.rpm($0.rpm) }) {
             if snapshot.fans.isEmpty {
                 Unavailable()
             } else {

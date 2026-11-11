@@ -5,7 +5,7 @@ struct CPUSection: View {
     let snapshot: Snapshot
 
     var body: some View {
-        SectionCard(title: "CPU", trailing: snapshot.cpu.map { Format.percent($0.total) }) {
+        SectionCard(title: "CPU", icon: "cpu", tint: .blue, trailing: snapshot.cpu.map { Format.percent($0.total) }) {
             if let cpu = snapshot.cpu {
                 CoreBars(cores: cpu.cores)
                 if cpu.loadAverage.count == 3 {

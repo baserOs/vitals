@@ -89,6 +89,8 @@ public enum SensorGroup: String, Sendable, CaseIterable {
     case gpu
     case battery
     case ssd
+    /// The outside of the case, where hands rest.
+    case surface
     case other
 
     public var title: String {
@@ -97,6 +99,7 @@ public enum SensorGroup: String, Sendable, CaseIterable {
         case .gpu: return "GPU"
         case .battery: return "Battery"
         case .ssd: return "SSD"
+        case .surface: return "Surface"
         case .other: return "Other"
         }
     }
@@ -166,9 +169,11 @@ public struct BatteryReading: Sendable, Equatable {
     /// 0...100
     public let healthPercent: Double?
     public let celsius: Double?
+    /// The rated output of the connected charger. nil on battery.
+    public let adapterWatts: Double?
 
     public init(percent: Double, isCharging: Bool, isPluggedIn: Bool, watts: Double,
-                cycleCount: Int, healthPercent: Double?, celsius: Double?) {
+                cycleCount: Int, healthPercent: Double?, celsius: Double?, adapterWatts: Double? = nil) {
         self.percent = percent
         self.isCharging = isCharging
         self.isPluggedIn = isPluggedIn
@@ -176,6 +181,7 @@ public struct BatteryReading: Sendable, Equatable {
         self.cycleCount = cycleCount
         self.healthPercent = healthPercent
         self.celsius = celsius
+        self.adapterWatts = adapterWatts
     }
 }
 
@@ -232,5 +238,11 @@ public struct Snapshot: Sendable, Equatable {
 
     public var fastestFan: FanReading? {
         fans.max { $0.rpm < $1.rpm }
+    }
+
+    /// The top speed of the fastest fan. nil when no fan reports one.
+    public var fanLimit: Double? {
+        let highest = fans.map(\.maxRPM).filter { $0.isFinite }.max() ?? 0
+        return highest > 0 ? highest : nil
     }
 }

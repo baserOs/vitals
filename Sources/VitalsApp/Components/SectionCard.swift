@@ -1,18 +1,20 @@
 import SwiftUI
 
-/// A titled box that holds one section of readings.
+/// A titled card that holds one section of readings.
 struct SectionCard<Content: View>: View {
     let title: String
+    let icon: String
+    var tint: Color = .accentColor
     var trailing: String? = nil
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title.uppercased())
-                    .font(.caption)
+            HStack(spacing: 7) {
+                IconBadge(systemName: icon, tint: tint)
+                Text(title)
+                    .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundStyle(Color.secondary)
                 Spacer()
                 if let trailing = trailing {
                     Text(trailing)
@@ -23,9 +25,9 @@ struct SectionCard<Content: View>: View {
             }
             content()
         }
-        .padding(10)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        .cardSurface()
     }
 }
 

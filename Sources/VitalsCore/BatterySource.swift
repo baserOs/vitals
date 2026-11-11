@@ -37,6 +37,13 @@ public final class BatterySource {
             if SensorCatalog.isPlausible(celsius: value) { celsius = value }
         }
 
+        // Present only while a charger is connected.
+        var adapter: Double?
+        if let details = properties["AdapterDetails"] as? [String: Any],
+           let rated = IORegistry.number(details["Watts"]), rated > 0, rated < 1000 {
+            adapter = rated
+        }
+
         return BatteryReading(
             percent: percent,
             isCharging: (properties["IsCharging"] as? Bool) ?? false,
@@ -44,7 +51,8 @@ public final class BatterySource {
             watts: watts,
             cycleCount: Int(IORegistry.number(properties["CycleCount"]) ?? 0),
             healthPercent: health,
-            celsius: celsius
+            celsius: celsius,
+            adapterWatts: adapter
         )
     }
 }

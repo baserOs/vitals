@@ -1,4 +1,5 @@
 import SwiftUI
+import VitalsCore
 
 /// Colours and clamping shared by the bars.
 enum Level {
@@ -19,13 +20,21 @@ enum Level {
         if celsius >= 75 { return .orange }
         return .primary
     }
+
+    static func color(for level: HeatLevel) -> Color {
+        switch level {
+        case .normal: return .primary
+        case .warm: return .orange
+        case .hot: return .red
+        }
+    }
 }
 
 /// A horizontal bar filled from the left.
 struct UsageBar: View {
     let fraction: Double
     var tint: Color = .accentColor
-    var height: CGFloat = 6
+    var height: CGFloat = 8
 
     var body: some View {
         GeometryReader { proxy in
@@ -49,14 +58,15 @@ struct VerticalBar: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(Color.primary.opacity(0.1))
-                RoundedRectangle(cornerRadius: 2)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(tint)
-                    .frame(height: max(1, Level.clamp(fraction) * proxy.size.height))
+                    .frame(height: max(2, Level.clamp(fraction) * proxy.size.height))
             }
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         }
-        .frame(minWidth: 5, maxWidth: 14)
+        .frame(minWidth: 6, maxWidth: 14)
     }
 }
 
