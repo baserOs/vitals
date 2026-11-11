@@ -127,9 +127,17 @@ public enum Diagnostics {
             let health = reading.healthPercent.map { String(format: "%.0f%%", $0) } ?? Format.missing
             lines.append("Health: \(health)")
             lines.append("Temperature: \(Format.temperature(reading.celsius, unit: .celsius))")
+            lines.append("Charger rating: \(Format.watts(reading.adapterWatts))")
         } else {
             lines.append("not available")
         }
+
+        section("Limits used for the graph scales")
+        let limits = MachineLimits.detect(adapterWatts: BatterySource().read()?.adapterWatts)
+        lines.append("GPU cores: \(MachineLimits.gpuCoreCount().map(String.init) ?? "unknown")")
+        lines.append("CPU + GPU (estimate): \(Format.watts(limits.chipWatts))")
+        lines.append("System: \(Format.watts(limits.systemWatts))"
+            + (limits.systemIsEstimate ? " (estimate, no charger seen)" : " (charger rating)"))
 
         section("Top processes")
         let top = processes.read(limit: 5)

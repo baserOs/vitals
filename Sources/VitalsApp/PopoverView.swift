@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 import VitalsCore
 
-/// The window that opens from the menu bar item.
+/// The window that opens from the menu bar item. Drawn as Liquid Glass:
+/// the system's translucent panel behind, a denser glass card per section.
 struct PopoverView: View {
     @ObservedObject private var visibility = PopoverVisibility.shared
 
@@ -14,7 +15,6 @@ struct PopoverView: View {
                 // Closed: draw nothing, so a hidden popover costs nothing.
                 Color.clear
             }
-            Divider()
             PopoverFooter()
         }
         .frame(width: 340, height: 640)
@@ -37,18 +37,24 @@ struct PopoverContent: View {
     var body: some View {
         let snapshot = sampler.latest
         ScrollView {
-            VStack(spacing: 8) {
-                CPUSection(snapshot: snapshot)
-                GPUSection(snapshot: snapshot)
-                MemorySection(snapshot: snapshot)
-                TemperaturesSection(snapshot: snapshot, unit: unit, rowLimit: 4)
-                FansSection(snapshot: snapshot)
-                PowerSection(snapshot: snapshot)
-                BatterySection(snapshot: snapshot, unit: unit)
-                ProcessesSection(snapshot: snapshot, limit: 5)
+            GlassGroup {
+                VStack(spacing: 10) {
+                    CPUSection(snapshot: snapshot)
+                    GPUSection(snapshot: snapshot)
+                    MemorySection(snapshot: snapshot)
+                    TemperaturesSection(snapshot: snapshot, unit: unit, summary: true)
+                    FansSection(snapshot: snapshot)
+                    PowerSection(snapshot: snapshot, limits: sampler.limits)
+                    BatterySection(snapshot: snapshot, unit: unit)
+                    ProcessesSection(snapshot: snapshot, limit: 5)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
             }
-            .padding(10)
         }
+        .scrollIndicators(.hidden)
+        .environment(\.cardStyle, .glass)
     }
 }
 
@@ -56,18 +62,27 @@ struct PopoverFooter: View {
     @EnvironmentObject private var sampler: Sampler
 
     var body: some View {
-        HStack {
-            Button("Dashboard") {
+        HStack(spacing: 8) {
+            Button {
                 AppWindows.openDashboard(sampler: sampler)
+            } label: {
+                Label("Dashboard", systemImage: "chart.xyaxis.line")
             }
-            Button("Settings") {
+            Button {
                 AppWindows.openSettings(sampler: sampler)
+            } label: {
+                Label("Settings", systemImage: "gearshape")
             }
             Spacer()
-            Button("Quit") {
+            Button {
                 NSApplication.shared.terminate(nil)
+            } label: {
+                Label("Quit", systemImage: "power")
             }
         }
-        .padding(10)
+        .labelStyle(.titleAndIcon)
+        .modifier(PillButtonStyle())
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 }

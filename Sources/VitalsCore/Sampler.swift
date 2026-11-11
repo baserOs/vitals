@@ -8,9 +8,12 @@ public final class Sampler: ObservableObject {
     /// Oldest first. Covers the last `historySeconds` seconds.
     @Published public private(set) var history: [Snapshot] = []
 
+    /// The most this Mac can draw, used as the top of the power graphs.
+    @Published public private(set) var limits: MachineLimits
+
     public static let historySeconds: TimeInterval = 600
     public static let allowedIntervals: [TimeInterval] = [1, 2, 5]
-    static let processLimit = 15
+    static let processLimit = 20
 
     /// Seconds between samples. Changing it restarts sampling.
     public var interval: TimeInterval {
@@ -51,8 +54,14 @@ public final class Sampler: ObservableObject {
     private var sources: Sources?
     private var collectsProcesses = false
 
+    /// Where the rating of the biggest charger seen is remembered, so the
+    /// system power scale is right on battery too.
+    static let adapterWattsKey = "largestAdapterWatts"
+
     public init(interval: TimeInterval = 2) {
         self.interval = interval
+        let remembered = UserDefaults.standard.double(forKey: Sampler.adapterWattsKey)
+        self.limits = MachineLimits.detect(adapterWatts: remembered > 0 ? remembered : nil)
         self.ring = RingBuffer<Snapshot>(capacity: Sampler.historyCapacity(interval: interval))
     }
 
@@ -117,6 +126,10 @@ public final class Sampler: ObservableObject {
         ring.append(snapshot)
         latest = snapshot
         history = ring.elements
+        if let rated = snapshot.battery?.adapterWatts, rated > (limits.adapterWatts ?? 0) {
+            limits.adapterWatts = rated
+            UserDefaults.standard.set(rated, forKey: Sampler.adapterWattsKey)
+        }
         if let visibilityCheck = visibilityCheck {
             wantsProcesses = visibilityCheck()
         }

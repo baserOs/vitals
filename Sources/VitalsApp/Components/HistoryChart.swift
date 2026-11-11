@@ -14,6 +14,9 @@ struct ChartSpec: Identifiable {
     /// The current value, already formatted.
     let value: String
     let points: [ChartPoint]
+    /// What the value is measured against, for example "of 96 W". nil
+    /// when the scale needs no explaining.
+    var limit: String? = nil
     /// The vertical range. Starts at zero.
     let domain: ClosedRange<Double>
     /// The time span along the bottom.
@@ -30,16 +33,22 @@ struct HistoryChart: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text(spec.title.uppercased())
-                    .font(.caption)
+                Text(spec.title)
+                    .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundStyle(Color.secondary)
                 Spacer()
                 Text(spec.value)
                     .font(.title3)
                     .fontWeight(.medium)
                     .monospacedDigit()
+                if let limit = spec.limit {
+                    Text(limit)
+                        .font(.caption)
+                        .foregroundStyle(Color.secondary)
+                        .monospacedDigit()
+                }
             }
+            .lineLimit(1)
             if spec.points.count < 2 {
                 Text("Collecting…")
                     .font(.callout)
@@ -56,11 +65,24 @@ struct HistoryChart: View {
                 .chartYScale(domain: spec.domain)
                 .chartXScale(domain: spec.window)
                 .chartXAxis(.hidden)
+                // Bottom, middle and top, so the top of the scale is always labelled.
+                .chartYAxis {
+                    AxisMarks(values: [spec.domain.lowerBound,
+                                       (spec.domain.lowerBound + spec.domain.upperBound) / 2,
+                                       spec.domain.upperBound]) { mark in
+                        AxisGridLine()
+                        AxisValueLabel {
+                            if let number = mark.as(Double.self) {
+                                Text("\(Int(number.rounded()))")
+                            }
+                        }
+                    }
+                }
                 .frame(height: 110)
             }
         }
-        .padding(10)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        .cardSurface()
     }
 }

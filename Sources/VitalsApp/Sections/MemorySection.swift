@@ -5,7 +5,7 @@ struct MemorySection: View {
     let snapshot: Snapshot
 
     var body: some View {
-        SectionCard(title: "Memory", trailing: snapshot.memory.map { Format.percent($0.usedFraction) }) {
+        SectionCard(title: "Memory", icon: "memorychip", tint: .purple, trailing: snapshot.memory.map { Format.percent($0.usedFraction) }) {
             if let memory = snapshot.memory {
                 StackedBar(parts: parts(memory))
                 HStack(spacing: 10) {

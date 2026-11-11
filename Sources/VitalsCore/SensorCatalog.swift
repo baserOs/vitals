@@ -13,6 +13,8 @@ public enum SensorCatalog {
         "TB1T": "Battery 1",
         "TB2T": "Battery 2",
         "TH0x": "SSD",
+        "Ts0P": "Palm rest 1",
+        "Ts1P": "Palm rest 2",
         "TW0P": "Wireless module",
     ]
 
@@ -31,6 +33,8 @@ public enum SensorCatalog {
         if key.hasPrefix("Tp") || key.hasPrefix("Te") || key.hasPrefix("Tc") || key.hasPrefix("Tf") { return .cpu }
         if key.hasPrefix("TB") { return .battery }
         if key.hasPrefix("TH") || key.hasPrefix("TN") { return .ssd }
+        // "Ts" keys are the skin sensors under the palm rest and keyboard.
+        if key.hasPrefix("Ts") { return .surface }
         return .other
     }
 
@@ -40,6 +44,8 @@ public enum SensorCatalog {
         if lower.contains("nand") || lower.contains("ssd") { return .ssd }
         if lower.contains("gpu") { return .gpu }
         if lower.contains("tdie") || lower.contains("cpu") || lower.contains("soc") { return .cpu }
+        if lower.contains("skin") || lower.contains("palm") || lower.contains("trackpad")
+            || lower.contains("keyboard") { return .surface }
         return .other
     }
 

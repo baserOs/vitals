@@ -8,7 +8,8 @@ struct ProcessesSection: View {
     var sortByMemory = false
 
     var body: some View {
-        SectionCard(title: "Top processes", trailing: sortByMemory ? "by memory" : "by CPU") {
+        SectionCard(title: "Top processes", icon: "list.bullet", tint: .gray,
+                    trailing: sortByMemory ? "by memory" : "by processor") {
             let rows = sorted
             if rows.isEmpty {
                 Text("Collecting…")

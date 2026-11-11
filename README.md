@@ -10,6 +10,8 @@ it needs no administrator password.
 ## Requirements
 
 - Apple Silicon Mac, macOS 14 or later.
+- The menu bar popover is drawn as Liquid Glass on macOS 26 and later.
+  Earlier versions get the same layout on a translucent material.
 
 ## Get the app
 
