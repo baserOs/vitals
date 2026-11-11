@@ -1,4 +1,4 @@
-# Vitals
+# Vitalis
 
 A menu bar app for Apple Silicon MacBooks that shows what the machine is
 doing: CPU per core, GPU, memory, every temperature sensor, fan speeds,
@@ -16,16 +16,19 @@ it needs no administrator password.
 ## Get the app
 
 Every push to `main` is built by GitHub Actions on a Mac. The finished app
-is attached to the release named `latest` as `Vitals.zip`.
+is attached to the release named `latest` as `Vitalis.zip`.
 
-1. Download `Vitals.zip` from the repository's Releases page and unzip it.
-2. Move `Vitals.app` to the Applications folder.
+1. Download `Vitalis.zip` from the repository's Releases page and unzip it.
+2. Move `Vitalis.app` to the Applications folder.
 3. Open it. The first time, macOS blocks it because it is not signed by a
    registered developer. Go to System Settings, Privacy & Security, scroll
    down and choose "Open Anyway".
 
 The app has no Dock icon. Look for the temperature and watts in the menu
 bar and click them.
+
+The app was called Vitals before. If `Vitals.app` is still installed, quit
+it and move it to the Trash; your settings carry over to Vitalis.
 
 ## Build it yourself
 
@@ -36,7 +39,7 @@ Needs Xcode or the Xcode Command Line Tools.
 ```
 
 ```bash
-open Vitals.app
+open Vitalis.app
 ```
 
 Run the tests:
@@ -48,18 +51,19 @@ swift test
 Print everything the app can read on this Mac:
 
 ```bash
-swift run vitals-probe
+swift run vitalis-probe
 ```
 
 ## Layout
 
 | Path | What it holds |
 |---|---|
-| `Sources/CVitals` | C wrappers for the SMC, the HID sensor service and IOReport |
-| `Sources/VitalsCore` | One source per kind of reading, the sampler, formatting |
-| `Sources/VitalsApp` | The SwiftUI menu bar item, popover, dashboard and settings |
-| `Sources/vitals-probe` | Command-line dump of every reading |
-| `Tests/VitalsCoreTests` | Tests for the logic that does not need hardware |
+| `Sources/CVitalis` | C wrappers for the SMC, the HID sensor service and IOReport |
+| `Sources/VitalisCore` | One source per kind of reading, the sampler, formatting |
+| `Sources/VitalisApp` | The SwiftUI menu bar item, popover, dashboard and settings |
+| `Sources/vitalis-probe` | Command-line dump of every reading |
+| `Tests/VitalisCoreTests` | Tests for the logic that does not need hardware |
+| `Assets` | The app icon: the drawing (`AppIcon.svg`) and its 1024 px render |
 
 ## Limits
 
