@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "Vitals",
+    name: "Vitalis",
     platforms: [.macOS(.v14)],
     targets: [
         // C wrappers around the SMC, the HID sensor service and IOReport.
         .target(
-            name: "CVitals",
+            name: "CVitalis",
             linkerSettings: [
                 .linkedFramework("CoreFoundation"),
                 .linkedFramework("IOKit"),
@@ -16,23 +16,23 @@ let package = Package(
         ),
         // Reads the hardware. No UI.
         .target(
-            name: "VitalsCore",
-            dependencies: ["CVitals"],
+            name: "VitalisCore",
+            dependencies: ["CVitalis"],
             linkerSettings: [.linkedFramework("IOKit")]
         ),
-        // The menu bar app. The target is named Vitals so the binary is too.
+        // The menu bar app. The target is named Vitalis so the binary is too.
         .executableTarget(
-            name: "Vitals",
-            dependencies: ["VitalsCore"],
-            path: "Sources/VitalsApp"
+            name: "Vitalis",
+            dependencies: ["VitalisCore"],
+            path: "Sources/VitalisApp"
         ),
         .executableTarget(
-            name: "vitals-probe",
-            dependencies: ["VitalsCore"]
+            name: "vitalis-probe",
+            dependencies: ["VitalisCore"]
         ),
         .testTarget(
-            name: "VitalsCoreTests",
-            dependencies: ["VitalsCore"]
+            name: "VitalisCoreTests",
+            dependencies: ["VitalisCore"]
         ),
     ]
 )
