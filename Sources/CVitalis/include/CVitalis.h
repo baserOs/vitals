@@ -49,6 +49,14 @@ const char *vitalis_energy_channel(int index);
 const char *vitalis_energy_unit(int index);
 double vitalis_energy_delta(int index);
 
+// ---- Processes --------------------------------------------------------
+
+/// The pid of the app that a process works for, as macOS itself attributes
+/// it (a browser tab's process answers to the browser). Returns the same
+/// pid when the process answers for itself, and -1 when the system does
+/// not offer the lookup.
+int vitalis_responsible_pid(int pid);
+
 #ifdef __cplusplus
 }
 #endif

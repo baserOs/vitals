@@ -1,3 +1,4 @@
+import CVitalis
 import Foundation
 
 /// A plain-text dump of everything this Mac lets the app read. Sensor keys
@@ -51,10 +52,15 @@ public enum Diagnostics {
         // Everything below is measured between two samples one second apart.
         let cpu = CPUSource()
         let power = PowerSource(smc: smc)
-        let processes = ProcessSource()
+        let resolver = AppResolver()
+        let processes = ProcessSource(resolver: resolver)
+        let network = NetworkSource()
+        let gpu = GPUSource()
         _ = cpu.read()
         _ = EnergyCounters.sample()
         _ = processes.read(limit: 5)
+        _ = network.read(interval: 1)
+        _ = gpu.readApps(utilization: 0, interval: 1, resolver: resolver, limit: 5)
         Thread.sleep(forTimeInterval: 1)
 
         section("Energy counters (change over about one second)")
@@ -139,11 +145,32 @@ public enum Diagnostics {
         lines.append("System: \(Format.watts(limits.systemWatts))"
             + (limits.systemIsEstimate ? " (estimate, no charger seen)" : " (charger rating)"))
 
-        section("Top processes")
+        section("Network (over about one and a half seconds)")
+        if let reading = network.read(interval: 2) {
+            lines.append("Download: \(Format.bitRate(bytesPerSecond: reading.downloadBytesPerSecond))")
+            lines.append("Upload: \(Format.bitRate(bytesPerSecond: reading.uploadBytesPerSecond))")
+        } else {
+            lines.append("not available")
+        }
+        lines.append("Interfaces: " + NetworkSource.counters().keys.sorted().joined(separator: " "))
+
+        section("GPU by app")
+        let clients = gpu.readClients()
+        lines.append("Connections to the GPU: \(clients.count)")
+        lines.append("Lookup of the app a process works for: "
+            + (vitalis_responsible_pid(getpid()) > 0 ? "available" : "not available"))
+        let gpuUsage = gpu.read()?.usage ?? 0
+        let gpuApps = gpu.readApps(utilization: gpuUsage, interval: 2, resolver: resolver, limit: 5)
+        if gpuApps.isEmpty { lines.append("none active") }
+        for app in gpuApps {
+            lines.append("\(app.name)  \(Format.percent(app.usage))")
+        }
+
+        section("Top apps")
         let top = processes.read(limit: 5)
         if top.isEmpty { lines.append("none") }
-        for process in top {
-            lines.append("\(process.name)  \(Format.percent(process.cpu))  \(Format.bytes(process.memoryBytes))")
+        for app in top {
+            lines.append("\(app.name) (\(app.processCount))  \(Format.percent(app.cpu))  \(Format.bytes(app.memoryBytes))")
         }
 
         return lines.joined(separator: "\n") + "\n"

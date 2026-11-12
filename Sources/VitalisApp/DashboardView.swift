@@ -4,6 +4,16 @@ import VitalisCore
 /// The full window: history graphs on top, every reading below. Uses the
 /// same rounded cards as the popover, but with a plain soft fill.
 struct DashboardView: View {
+    var body: some View {
+        ScrollView {
+            DashboardContent()
+        }
+        .frame(minWidth: 820, minHeight: 600)
+    }
+}
+
+/// Everything in the dashboard, without the scrolling around it.
+struct DashboardContent: View {
     @EnvironmentObject private var sampler: Sampler
     @AppStorage(SettingsKey.temperatureUnit) private var unit: TemperatureUnit = .celsius
     @State private var sortByMemory = false
@@ -17,82 +27,90 @@ struct DashboardView: View {
         let snapshot = sampler.latest
         let limits = sampler.limits
         let specs = chartSpecs(history: sampler.history, latest: snapshot, limits: limits)
-        ScrollView {
-            VStack(spacing: 12) {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(specs) { spec in
-                        HistoryChart(spec: spec)
-                    }
-                }
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(spacing: 12) {
-                        CPUSection(snapshot: snapshot)
-                        GPUSection(snapshot: snapshot)
-                        MemorySection(snapshot: snapshot, detailed: true)
-                        PowerSection(snapshot: snapshot, limits: limits)
-                        FansSection(snapshot: snapshot)
-                        BatterySection(snapshot: snapshot, unit: unit)
-                    }
-                    VStack(spacing: 12) {
-                        Picker("Sort processes", selection: $sortByMemory) {
-                            Text("By Processor").tag(false)
-                            Text("By memory").tag(true)
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        ProcessesSection(snapshot: snapshot, limit: 20, sortByMemory: sortByMemory)
-                        TemperaturesSection(snapshot: snapshot, unit: unit)
-                    }
+        VStack(spacing: 12) {
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(specs) { spec in
+                    HistoryChart(spec: spec)
                 }
             }
-            .padding(16)
+            HStack(alignment: .top, spacing: 12) {
+                VStack(spacing: 12) {
+                    CPUSection(snapshot: snapshot)
+                    GPUSection(snapshot: snapshot)
+                    MemorySection(snapshot: snapshot, detailed: true)
+                    PowerSection(snapshot: snapshot, limits: limits)
+                    FansSection(snapshot: snapshot)
+                    BatterySection(snapshot: snapshot, unit: unit)
+                }
+                VStack(spacing: 12) {
+                    Picker("Sort processes", selection: $sortByMemory) {
+                        Text("By Processor").tag(false)
+                        Text("By memory").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    ProcessesSection(snapshot: snapshot, limit: 20, sortByMemory: sortByMemory)
+                    GPUAppsSection(snapshot: snapshot)
+                    TemperaturesSection(snapshot: snapshot, unit: unit, listsEverySensor: true)
+                }
+            }
         }
+        .padding(16)
         .environment(\.cardStyle, .soft)
-        .frame(minWidth: 820, minHeight: 600)
     }
 
-    private func chartSpecs(history: [Snapshot], latest: Snapshot, limits: MachineLimits) -> [ChartSpec] {
+    private func chartSpecs(history: [HistoryPoint], latest: Snapshot, limits: MachineLimits) -> [ChartSpec] {
         let end = latest.date
         let window = end.addingTimeInterval(-Sampler.historySeconds)...end
 
-        func series(_ value: (Snapshot) -> Double?) -> [ChartPoint] {
+        func series(_ value: (HistoryPoint) -> Double?) -> [ChartPoint] {
             var points: [ChartPoint] = []
             points.reserveCapacity(history.count)
-            for snapshot in history {
-                if let number = value(snapshot), number.isFinite {
-                    points.append(ChartPoint(date: snapshot.date, value: number))
+            for point in history {
+                if let number = value(point), number.isFinite {
+                    points.append(ChartPoint(date: point.date, value: number))
                 }
             }
             return points
         }
 
+        func highest(_ points: [ChartPoint]) -> Double {
+            points.map(\.value).max() ?? 0
+        }
+
         /// A range from zero to a little above the highest point.
         func openDomain(_ points: [ChartPoint], atLeast floor: Double) -> ClosedRange<Double> {
-            let highest = points.map(\.value).max() ?? 0
-            return 0...max(floor, highest * 1.15)
+            0...max(floor, highest(points) * 1.15)
         }
 
         /// A range from zero to this Mac's limit, the way CPU and memory
         /// run to 100%. Grows only if a reading went past the limit.
         func limitDomain(_ points: [ChartPoint], limit: Double, step: Double) -> ClosedRange<Double> {
-            0...LimitMath.ceiling(limit: limit, peak: points.map(\.value).max() ?? 0, step: step)
+            0...LimitMath.ceiling(limit: limit, peak: highest(points), step: step)
+        }
+
+        /// A range from zero to the next round number above the highest
+        /// point, for a value with no limit of its own.
+        func roundDomain(_ points: [ChartPoint], atLeast floor: Double) -> ClosedRange<Double> {
+            0...LimitMath.roundCeiling(highest(points), floor: floor)
         }
 
         func wholeWatts(_ watts: Double) -> String {
             String(format: "%.0f W", watts)
         }
 
-        let cpu = series { $0.cpu.map { $0.total * 100 } }
-        let memory = series { $0.memory.map { $0.usedFraction * 100 } }
-        let temperature = series { snapshot in
-            snapshot.hottest.map { unit == .celsius ? $0.celsius : $0.celsius * 9 / 5 + 32 }
+        let megabit = 125_000.0  // bytes per second in one megabit per second
+
+        let cpu = series { $0.cpu.map { $0 * 100 } }
+        let memory = series { $0.memory.map { $0 * 100 } }
+        let temperature = series { point in
+            point.hottestCelsius.map { unit == .celsius ? $0 : $0 * 9 / 5 + 32 }
         }
-        let system = series { $0.power?.systemWatts }
-        let chip = series { snapshot in
-            guard let power = snapshot.power, power.cpuWatts != nil || power.gpuWatts != nil else { return nil }
-            return (power.cpuWatts ?? 0) + (power.gpuWatts ?? 0)
-        }
-        let fan = series { $0.fastestFan?.rpm }
+        let system = series { $0.systemWatts }
+        let chip = series { $0.chipWatts }
+        let fan = series { $0.fanRPM }
+        let download = series { $0.downloadBytesPerSecond.map { $0 / megabit } }
+        let upload = series { $0.uploadBytesPerSecond.map { $0 / megabit } }
 
         // System power runs to the charger rating, or to an estimate until
         // a charger has been seen.
@@ -115,11 +133,9 @@ struct DashboardView: View {
             fanLimitText = nil
         }
 
-        let chipNow: Double?
+        var chipNow: Double?
         if let power = latest.power, power.cpuWatts != nil || power.gpuWatts != nil {
             chipNow = (power.cpuWatts ?? 0) + (power.gpuWatts ?? 0)
-        } else {
-            chipNow = nil
         }
 
         return [
@@ -136,6 +152,16 @@ struct DashboardView: View {
                       limit: chipLimit, domain: chipDomain, window: window, tint: .green),
             ChartSpec(title: "Fan speed", value: Format.rpm(latest.fastestFan?.rpm), points: fan,
                       limit: fanLimitText, domain: fanDomain, window: window, tint: .teal),
+            // The network has no limit of its own, so these scale to what
+            // was seen, in megabits per second.
+            ChartSpec(title: "Download",
+                      value: Format.bitRate(bytesPerSecond: latest.network?.downloadBytesPerSecond),
+                      points: download, limit: "axis in Mb/s", domain: roundDomain(download, atLeast: 1),
+                      window: window, tint: .cyan),
+            ChartSpec(title: "Upload",
+                      value: Format.bitRate(bytesPerSecond: latest.network?.uploadBytesPerSecond),
+                      points: upload, limit: "axis in Mb/s", domain: roundDomain(upload, atLeast: 1),
+                      window: window, tint: .mint),
         ]
     }
 }

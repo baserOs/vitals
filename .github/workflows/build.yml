@@ -33,6 +33,22 @@ jobs:
       - name: Test
         run: swift test
 
+      - name: Draw the screens
+        # Draws the dashboard and the popover with sample data, so the
+        # layout can be looked at without a Mac at hand. Never fails the build.
+        continue-on-error: true
+        env:
+          VITALIS_SCREENSHOTS: ${{ github.workspace }}/screens
+        run: swift test --filter ScreenshotTests
+
+      - name: Upload the screens
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: Screens
+          path: screens
+          if-no-files-found: ignore
+
       - name: Run the probe
         # The build machine is virtual and has no real sensors, so this only
         # proves that every source fails cleanly instead of crashing.

@@ -87,6 +87,18 @@ public enum Format {
         return String(format: "%.0f MB", megabytes)
     }
 
+    /// A network speed in bits per second, the way connections are sold:
+    /// "340 kb/s", "12.4 Mb/s", "1.20 Gb/s".
+    public static func bitRate(bytesPerSecond: Double?) -> String {
+        guard let bytesPerSecond, bytesPerSecond.isFinite, bytesPerSecond >= 0 else { return missing }
+        let kilobits = bytesPerSecond * 8 / 1000
+        if kilobits.rounded() < 1000 { return String(format: "%.0f kb/s", kilobits) }
+        let megabits = kilobits / 1000
+        if megabits < 100 { return String(format: "%.1f Mb/s", megabits) }
+        if megabits.rounded() < 1000 { return String(format: "%.0f Mb/s", megabits) }
+        return String(format: "%.2f Gb/s", megabits / 1000)
+    }
+
     public static func rpm(_ value: Double?) -> String {
         guard let value, value.isFinite else { return missing }
         return "\(Int(value.rounded())) rpm"

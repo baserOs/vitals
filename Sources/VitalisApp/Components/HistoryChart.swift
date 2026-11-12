@@ -73,7 +73,9 @@ struct HistoryChart: View {
                         AxisGridLine()
                         AxisValueLabel {
                             if let number = mark.as(Double.self) {
-                                Text("\(Int(number.rounded()))")
+                                // A scale that tops out below 10 needs its decimals.
+                                Text(spec.domain.upperBound < 10 ? String(format: "%.1f", number)
+                                     : "\(Int(number.rounded()))")
                             }
                         }
                     }

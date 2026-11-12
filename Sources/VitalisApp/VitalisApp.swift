@@ -9,6 +9,7 @@ struct VitalisApp: App {
     @AppStorage(SettingsKey.temperatureUnit) private var unit: TemperatureUnit = .celsius
 
     init() {
+        SettingsDefault.raiseStoredTransparencyOnce()
         let sampler = Sampler(interval: SettingsDefault.storedRefreshInterval)
         // Collect the process list only while something that shows it is open.
         // The sampler calls this on the main thread.

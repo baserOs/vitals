@@ -69,6 +69,19 @@ public enum LimitMath {
         return roundUp(peak * 1.05, step: step)
     }
 
+    /// The next "round" number at or above `value` (1, 2, 5, 10, 20, 50…),
+    /// never below `floor`. Used as the top of a graph with no fixed
+    /// limit, so the scale moves in a few clear steps and not with every
+    /// sample.
+    public static func roundCeiling(_ value: Double, floor: Double) -> Double {
+        guard value.isFinite, value > floor, floor > 0 else { return floor }
+        let magnitude = pow(10, (log10(value)).rounded(.down))
+        for step in [1.0, 2, 5, 10] where step * magnitude >= value {
+            return step * magnitude
+        }
+        return 10 * magnitude
+    }
+
     static func roundUp(_ value: Double, step: Double) -> Double {
         guard step > 0, value.isFinite else { return value }
         return (value / step).rounded(.up) * step

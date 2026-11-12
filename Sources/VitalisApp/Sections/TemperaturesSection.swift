@@ -1,36 +1,54 @@
 import SwiftUI
 import VitalisCore
 
+/// The temperatures that matter, one per spot. In the dashboard the full
+/// sensor list sits folded underneath.
 struct TemperaturesSection: View {
     let snapshot: Snapshot
     let unit: TemperatureUnit
-    /// True shows one reading per spot. False lists every sensor.
-    var summary = false
+    /// Whether the full sensor list can be unfolded below the summary.
+    var listsEverySensor = false
+    @State private var showsEverySensor = false
 
     var body: some View {
         SectionCard(title: "Temperatures", icon: "thermometer.medium", tint: .red,
                     trailing: snapshot.hottest.map { Format.temperature($0.celsius, unit: unit) }) {
-            if summary {
-                let highlights = TemperatureSummary.highlights(for: snapshot)
-                if highlights.isEmpty {
-                    Unavailable()
-                } else {
-                    TemperatureChips(highlights: highlights, unit: unit)
-                }
-            } else if snapshot.temperatures.isEmpty {
+            let highlights = TemperatureSummary.highlights(for: snapshot)
+            if highlights.isEmpty {
                 Unavailable()
             } else {
-                ForEach(SensorGroup.allCases, id: \.self) { group in
-                    TemperatureGroup(group: group,
-                                     readings: snapshot.temperatures.filter { $0.group == group },
-                                     unit: unit)
+                TemperatureChips(highlights: highlights, unit: unit)
+            }
+            if listsEverySensor, !snapshot.temperatures.isEmpty {
+                Button {
+                    showsEverySensor.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .semibold))
+                            .rotationEffect(.degrees(showsEverySensor ? 90 : 0))
+                            .frame(width: 10)
+                        Text(showsEverySensor ? "Hide the sensor list" : "All \(snapshot.temperatures.count) sensors")
+                        Spacer()
+                    }
+                    .font(.caption)
+                    .foregroundStyle(Color.secondary)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if showsEverySensor {
+                    ForEach(SensorGroup.allCases, id: \.self) { group in
+                        TemperatureGroup(group: group,
+                                         readings: snapshot.temperatures.filter { $0.group == group },
+                                         unit: unit)
+                    }
                 }
             }
         }
     }
 }
 
-/// One small tile per spot: symbol, temperature, name.
+/// One small tile per spot: temperature and name.
 struct TemperatureChips: View {
     let highlights: [TemperatureHighlight]
     let unit: TemperatureUnit
@@ -38,11 +56,7 @@ struct TemperatureChips: View {
     var body: some View {
         HStack(spacing: 6) {
             ForEach(highlights) { highlight in
-                VStack(spacing: 3) {
-                    Image(systemName: symbol(highlight.spot))
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.secondary)
-                        .frame(height: 16)
+                VStack(spacing: 2) {
                     // "≈" marks a spot with no sensor of its own.
                     Text((highlight.isEstimate ? "≈" : "") + Format.temperature(highlight.celsius, unit: unit))
                         .font(.callout)
@@ -55,21 +69,11 @@ struct TemperatureChips: View {
                 }
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .padding(.vertical, 8)
+                .padding(.vertical, 7)
                 .padding(.horizontal, 2)
                 .frame(maxWidth: .infinity)
                 .tileSurface()
             }
-        }
-    }
-
-    private func symbol(_ spot: TemperatureSpot) -> String {
-        switch spot {
-        case .cpu: return "cpu"
-        case .gpu: return "cube"
-        case .battery: return "battery.75percent"
-        case .ssd: return "internaldrive"
-        case .surface: return "keyboard"
         }
     }
 }

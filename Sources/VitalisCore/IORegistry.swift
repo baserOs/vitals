@@ -18,6 +18,19 @@ enum IORegistry {
         }
     }
 
+    /// Calls `body` with each entry directly below `service`.
+    static func forEachChild(of service: io_service_t, _ body: (io_registry_entry_t) -> Void) {
+        var iterator: io_iterator_t = 0
+        guard IORegistryEntryGetChildIterator(service, kIOServicePlane, &iterator) == KERN_SUCCESS else { return }
+        defer { IOObjectRelease(iterator) }
+        while true {
+            let child = IOIteratorNext(iterator)
+            if child == 0 { break }
+            body(child)
+            IOObjectRelease(child)
+        }
+    }
+
     static func property(_ name: String, of service: io_service_t) -> Any? {
         guard let value = IORegistryEntryCreateCFProperty(service, name as CFString, kCFAllocatorDefault, 0) else {
             return nil

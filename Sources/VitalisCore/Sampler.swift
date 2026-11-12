@@ -5,8 +5,11 @@ import Foundation
 /// Create it and read its published values on the main thread.
 public final class Sampler: ObservableObject {
     @Published public private(set) var latest: Snapshot = .empty
-    /// Oldest first. Covers the last `historySeconds` seconds.
-    @Published public private(set) var history: [Snapshot] = []
+
+    /// Oldest first. Covers the last `historySeconds` seconds. Built when
+    /// asked for, so it costs nothing while no graph is on screen. Read it
+    /// on the main thread, where `latest` changes along with it.
+    public var history: [HistoryPoint] { ring.elements }
 
     /// The most this Mac can draw, used as the top of the power graphs.
     @Published public private(set) var limits: MachineLimits
@@ -14,20 +17,22 @@ public final class Sampler: ObservableObject {
     public static let historySeconds: TimeInterval = 600
     public static let allowedIntervals: [TimeInterval] = [1, 2, 5]
     static let processLimit = 20
+    static let gpuAppLimit = 5
 
     /// Seconds between samples. Changing it restarts sampling.
     public var interval: TimeInterval {
         didSet {
             guard interval != oldValue else { return }
-            var resized = RingBuffer<Snapshot>(capacity: Sampler.historyCapacity(interval: interval))
-            for snapshot in ring.elements { resized.append(snapshot) }
+            var resized = RingBuffer<HistoryPoint>(capacity: Sampler.historyCapacity(interval: interval))
+            for point in ring.elements { resized.append(point) }
             ring = resized
             if timer != nil { startTimer() }
         }
     }
 
-    /// Whether to collect the process list, which is the most expensive
-    /// source. Turn it on only while a window that shows processes is open.
+    /// Whether to collect the app lists (processes and GPU use), which are
+    /// the most expensive sources. Turn it on only while a window that
+    /// shows them is open.
     public var wantsProcesses = false {
         didSet {
             guard wantsProcesses != oldValue else { return }
@@ -48,7 +53,7 @@ public final class Sampler: ObservableObject {
 
     private let queue = DispatchQueue(label: "local.vitals.sampler", qos: .utility)
     private var timer: DispatchSourceTimer?
-    private var ring: RingBuffer<Snapshot>
+    private var ring: RingBuffer<HistoryPoint>
 
     // Used only on `queue`.
     private var sources: Sources?
@@ -62,7 +67,7 @@ public final class Sampler: ObservableObject {
         self.interval = interval
         let remembered = UserDefaults.standard.double(forKey: Sampler.adapterWattsKey)
         self.limits = MachineLimits.detect(adapterWatts: remembered > 0 ? remembered : nil)
-        self.ring = RingBuffer<Snapshot>(capacity: Sampler.historyCapacity(interval: interval))
+        self.ring = RingBuffer<HistoryPoint>(capacity: Sampler.historyCapacity(interval: interval))
     }
 
     public static func historyCapacity(interval: TimeInterval) -> Int {
@@ -105,27 +110,45 @@ public final class Sampler: ObservableObject {
     private func sample(interval: TimeInterval) {
         if sources == nil { sources = Sources() }
         guard let sources = sources else { return }
+        let gpu = sources.gpu.read()
+        var apps: [ProcessGroup] = []
+        var gpuApps: [GPUProcessReading] = []
+        if collectsProcesses {
+            apps = sources.process.read(limit: Sampler.processLimit)
+            gpuApps = sources.gpu.readApps(utilization: gpu?.usage ?? 0, interval: interval,
+                                           resolver: sources.resolver, limit: Sampler.gpuAppLimit)
+        }
         let snapshot = Snapshot(
             date: Date(),
             cpu: sources.cpu.read(),
             memory: sources.memory.read(),
-            gpu: sources.gpu.read(),
+            gpu: gpu,
             temperatures: sources.temperature.read(),
             fans: sources.fan.read(),
             power: sources.power.read(interval: interval),
             battery: sources.battery.read(),
-            processes: collectsProcesses ? sources.process.read(limit: Sampler.processLimit) : []
+            apps: apps,
+            gpuApps: gpuApps,
+            network: sources.network.read(interval: interval)
         )
         DispatchQueue.main.async { [weak self] in
             self?.publish(snapshot)
         }
     }
 
+    /// Shows fixed data without sampling. For tests and previews.
+    func load(latest: Snapshot, history: [HistoryPoint], limits: MachineLimits) {
+        var filled = RingBuffer<HistoryPoint>(capacity: max(1, history.count))
+        for point in history { filled.append(point) }
+        ring = filled
+        self.limits = limits
+        self.latest = latest
+    }
+
     // Runs on the main thread.
     private func publish(_ snapshot: Snapshot) {
-        ring.append(snapshot)
+        ring.append(HistoryPoint(snapshot))
         latest = snapshot
-        history = ring.elements
         if let rated = snapshot.battery?.adapterWatts, rated > (limits.adapterWatts ?? 0) {
             limits.adapterWatts = rated
             UserDefaults.standard.set(rated, forKey: Sampler.adapterWattsKey)
@@ -142,12 +165,18 @@ final class Sources {
     let memory = MemorySource()
     let gpu = GPUSource()
     let battery = BatterySource()
-    let process = ProcessSource()
+    let network = NetworkSource()
+    /// Shared, so the process list and the GPU list name apps the same way.
+    let resolver: AppResolver
+    let process: ProcessSource
     let temperature: TemperatureSource
     let fan: FanSource
     let power: PowerSource
 
     init() {
+        let shared = AppResolver()
+        resolver = shared
+        process = ProcessSource(resolver: shared)
         let smc = SMCClient()
         temperature = TemperatureSource(smc: smc)
         fan = FanSource(smc: smc)
