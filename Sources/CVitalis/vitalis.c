@@ -2,7 +2,9 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
+#include <dlfcn.h>
 #include <string.h>
+#include <sys/types.h>
 #include <time.h>
 
 // ===== SMC ===============================================================
@@ -356,4 +358,22 @@ const char *vitalis_energy_unit(int index) {
 double vitalis_energy_delta(int index) {
     if (index < 0 || index >= g_energy_count) return 0;
     return g_energy[index].delta;
+}
+
+// ===== Processes =========================================================
+//
+// The lookup is not in a public header, so it is found by name at run time.
+// If a future system drops it, the function reports -1 and callers fall
+// back to the process itself.
+
+int vitalis_responsible_pid(int pid) {
+    static pid_t (*lookup)(pid_t) = NULL;
+    static int searched = 0;
+    if (!searched) {
+        lookup = (pid_t (*)(pid_t))dlsym(RTLD_DEFAULT, "responsibility_get_pid_responsible_for_pid");
+        searched = 1;
+    }
+    if (!lookup || pid <= 0) return -1;
+    pid_t responsible = lookup((pid_t)pid);
+    return responsible > 0 ? (int)responsible : -1;
 }

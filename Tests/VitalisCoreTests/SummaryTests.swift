@@ -4,7 +4,7 @@ import XCTest
 final class TemperatureSummaryTests: XCTestCase {
     private func snapshot(_ temperatures: [TemperatureReading], battery: BatteryReading? = nil) -> Snapshot {
         Snapshot(date: Date(), cpu: nil, memory: nil, gpu: nil, temperatures: temperatures, fans: [],
-                 power: nil, battery: battery, processes: [])
+                 power: nil, battery: battery, apps: [])
     }
 
     private func reading(_ key: String, _ celsius: Double) -> TemperatureReading {
@@ -118,7 +118,7 @@ final class FanLimitTests: XCTestCase {
         let snapshot = Snapshot(date: Date(), cpu: nil, memory: nil, gpu: nil, temperatures: [],
                                 fans: [FanReading(id: 0, rpm: 0, minRPM: 1200, maxRPM: 5779),
                                        FanReading(id: 1, rpm: 0, minRPM: 1200, maxRPM: 6241)],
-                                power: nil, battery: nil, processes: [])
+                                power: nil, battery: nil, apps: [])
         XCTAssertEqual(snapshot.fanLimit, 6241)
     }
 
@@ -126,7 +126,7 @@ final class FanLimitTests: XCTestCase {
         XCTAssertNil(Snapshot.empty.fanLimit)
         let snapshot = Snapshot(date: Date(), cpu: nil, memory: nil, gpu: nil, temperatures: [],
                                 fans: [FanReading(id: 0, rpm: 2000, minRPM: 0, maxRPM: 0)],
-                                power: nil, battery: nil, processes: [])
+                                power: nil, battery: nil, apps: [])
         XCTAssertNil(snapshot.fanLimit)
     }
 }
@@ -195,6 +195,217 @@ final class ProcessRankingTests: XCTestCase {
         XCTAssertEqual(Format.processMemory(1010 * 1_048_576), "0.99 GB")
         XCTAssertEqual(Format.processMemory(2 * 1_073_741_824), "2.00 GB")
         XCTAssertEqual(Format.processMemory(1000), "<1 MB")
+    }
+}
+
+final class ProcessGroupTests: XCTestCase {
+    private let safari = AppIdentity(key: "app:/Applications/Safari.app", name: "Safari")
+    private let finder = AppIdentity(key: "app:/System/Library/CoreServices/Finder.app", name: "Finder")
+
+    func testAnAppAddsUpItsProcesses() {
+        let groups = ProcessSource.groups(from: [
+            safari: [
+                ProcessReading(pid: 10, name: "Safari", cpu: 0.10, memoryBytes: 300),
+                ProcessReading(pid: 11, name: "com.apple.WebKit.WebContent", cpu: 0.40, memoryBytes: 900),
+                ProcessReading(pid: 12, name: "com.apple.WebKit.WebContent", cpu: 0.00, memoryBytes: 700),
+            ],
+            finder: [ProcessReading(pid: 20, name: "Finder", cpu: 0.05, memoryBytes: 200)],
+        ])
+        let byMemory = groups.ranked(by: .memory, limit: 10)
+        XCTAssertEqual(byMemory.map(\.name), ["Safari", "Finder"])
+        XCTAssertEqual(byMemory.first?.memoryBytes, 1900)
+        XCTAssertEqual(byMemory.first?.cpu ?? 0, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(byMemory.first?.processCount, 3)
+        XCTAssertEqual(byMemory.first?.members.ranked(by: .memory, limit: 10).map(\.pid), [11, 12, 10])
+    }
+
+    func testAnAppKeepsOnlyItsBusiestProcessesButCountsThemAll() {
+        let many = (0..<40).map { ProcessReading(pid: Int32(100 + $0), name: "helper", cpu: 0, memoryBytes: UInt64($0)) }
+        let group = ProcessSource.groups(from: [safari: many]).first
+        XCTAssertEqual(group?.processCount, 40)
+        XCTAssertLessThanOrEqual(group?.members.count ?? 99, ProcessSource.memberLimit * 2)
+        // The heaviest one is always among those kept.
+        XCTAssertTrue(group?.members.contains { $0.pid == 139 } ?? false)
+    }
+
+    func testBusiestKeepsTheTopOfBothOrdersWithoutRepeats() {
+        let processes = [
+            ProcessReading(pid: 1, name: "a", cpu: 0.9, memoryBytes: 10),
+            ProcessReading(pid: 2, name: "b", cpu: 0.0, memoryBytes: 900),
+            ProcessReading(pid: 3, name: "c", cpu: 0.1, memoryBytes: 20),
+        ]
+        XCTAssertEqual(Set(processes.busiest(limit: 1).map(\.pid)), [1, 2])
+        XCTAssertEqual(processes.busiest(limit: 3).count, 3)
+    }
+}
+
+final class AppNamingTests: XCTestCase {
+    func testTheOutermostAppBundleWins() {
+        let path = "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework"
+            + "/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)"
+        XCTAssertEqual(AppNaming.app(inPath: path)?.name, "Google Chrome")
+        XCTAssertEqual(AppNaming.app(inPath: path)?.key, "app:/Applications/Google Chrome.app")
+    }
+
+    func testAPathOutsideAnyAppHasNoApp() {
+        XCTAssertNil(AppNaming.app(inPath: "/usr/libexec/trustd"))
+        XCTAssertNil(AppNaming.app(inPath: ""))
+    }
+
+    // A browser tab runs from a system folder; only its owner says whose it is.
+    func testAProcessIsCountedUnderTheAppItWorksFor() {
+        let identity = AppNaming.identity(
+            processName: "com.apple.WebKit.WebContent",
+            path: "/System/Library/Frameworks/WebKit.framework/XPCServices/com.apple.WebKit.WebContent.xpc"
+                + "/Contents/MacOS/com.apple.WebKit.WebContent",
+            ownerName: "Safari", ownerPath: "/Applications/Safari.app/Contents/MacOS/Safari")
+        XCTAssertEqual(identity.name, "Safari")
+    }
+
+    func testAProcessWithNoOwnerUsesItsOwnApp() {
+        let identity = AppNaming.identity(processName: "Finder",
+                                          path: "/System/Library/CoreServices/Finder.app/Contents/MacOS/Finder",
+                                          ownerName: nil, ownerPath: nil)
+        XCTAssertEqual(identity.name, "Finder")
+    }
+
+    func testAToolStartedFromATerminalIsCountedUnderTheTerminal() {
+        let identity = AppNaming.identity(processName: "node", path: "/opt/homebrew/bin/node", ownerName: "Terminal",
+                                          ownerPath: "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal")
+        XCTAssertEqual(identity.name, "Terminal")
+    }
+
+    func testSameNamedHelpersOutsideAnyAppAreGathered() {
+        let first = AppNaming.identity(processName: "mdworker_shared", path: "/usr/libexec/mdworker_shared",
+                                       ownerName: nil, ownerPath: nil)
+        let second = AppNaming.identity(processName: "mdworker_shared", path: nil, ownerName: nil, ownerPath: nil)
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(first.name, "mdworker_shared")
+    }
+}
+
+final class GPUShareTests: XCTestCase {
+    func testParsesTheOwnerOfAConnection() {
+        let owner = GPUShareMath.parseCreator("pid 517, WindowServer")
+        XCTAssertEqual(owner?.pid, 517)
+        XCTAssertEqual(owner?.name, "WindowServer")
+        XCTAssertEqual(GPUShareMath.parseCreator("pid 88, Google Chrome He")?.name, "Google Chrome He")
+        XCTAssertNil(GPUShareMath.parseCreator("WindowServer"))
+        XCTAssertNil(GPUShareMath.parseCreator("pid x, y"))
+    }
+
+    func testSharesSplitTheUtilizationInProportion() {
+        let shares = GPUShareMath.shares(previous: [1: 100, 2: 100, 3: 100], current: [1: 400, 2: 200, 3: 100],
+                                         utilization: 0.4)
+        XCTAssertEqual(shares[1] ?? 0, 0.3, accuracy: 0.0001)
+        XCTAssertEqual(shares[2] ?? 0, 0.1, accuracy: 0.0001)
+        XCTAssertNil(shares[3])
+        XCTAssertEqual(shares.values.reduce(0, +), 0.4, accuracy: 0.0001)
+    }
+
+    func testANewProcessOrABackwardsCounterGetsNothing() {
+        let shares = GPUShareMath.shares(previous: [1: 500], current: [1: 400, 2: 900], utilization: 0.5)
+        XCTAssertTrue(shares.isEmpty)
+    }
+
+    func testNoSharesWhenTheGPUIsIdle() {
+        XCTAssertTrue(GPUShareMath.shares(previous: [1: 1], current: [1: 9], utilization: 0).isEmpty)
+    }
+
+    func testTopIsBiggestFirstAndLimited() {
+        let top = GPUShareMath.top([
+            AppIdentity(key: "a", name: "A"): 0.1,
+            AppIdentity(key: "b", name: "B"): 0.3,
+            AppIdentity(key: "c", name: "C"): 0.2,
+        ], limit: 2)
+        XCTAssertEqual(top.map(\.name), ["B", "C"])
+    }
+}
+
+final class NetworkTests: XCTestCase {
+    func testRatesAreBytesPerSecondAcrossInterfaces() {
+        let reading = NetworkMath.rates(
+            previous: ["en0": InterfaceCounters(received: 1000, sent: 500), "en1": InterfaceCounters(received: 0, sent: 0)],
+            current: ["en0": InterfaceCounters(received: 5000, sent: 1500), "en1": InterfaceCounters(received: 2000, sent: 0)],
+            seconds: 2)
+        XCTAssertEqual(reading?.downloadBytesPerSecond, 3000)
+        XCTAssertEqual(reading?.uploadBytesPerSecond, 500)
+    }
+
+    // The counters are 32 bits wide and wrap to zero every 4 GB.
+    func testACounterThatWrappedStillGivesTheRightAmount() {
+        let reading = NetworkMath.rates(
+            previous: ["en0": InterfaceCounters(received: UInt32.max - 99, sent: 0)],
+            current: ["en0": InterfaceCounters(received: 900, sent: 0)],
+            seconds: 1)
+        XCTAssertEqual(reading?.downloadBytesPerSecond, 1000)
+    }
+
+    func testAnInterfaceThatJustAppearedIsNotCounted() {
+        let reading = NetworkMath.rates(previous: [:], current: ["en0": InterfaceCounters(received: 9_000_000, sent: 9)],
+                                        seconds: 1)
+        XCTAssertEqual(reading?.downloadBytesPerSecond, 0)
+    }
+
+    func testNoRateWithoutElapsedTime() {
+        XCTAssertNil(NetworkMath.rates(previous: [:], current: [:], seconds: 0))
+    }
+
+    func testBitRateFormatting() {
+        XCTAssertEqual(Format.bitRate(bytesPerSecond: 0), "0 kb/s")
+        XCTAssertEqual(Format.bitRate(bytesPerSecond: 42_500), "340 kb/s")
+        XCTAssertEqual(Format.bitRate(bytesPerSecond: 1_550_000), "12.4 Mb/s")
+        XCTAssertEqual(Format.bitRate(bytesPerSecond: 31_250_000), "250 Mb/s")
+        XCTAssertEqual(Format.bitRate(bytesPerSecond: 150_000_000), "1.20 Gb/s")
+        XCTAssertEqual(Format.bitRate(bytesPerSecond: nil), Format.missing)
+    }
+
+    func testRoundCeilingMovesInClearSteps() {
+        XCTAssertEqual(LimitMath.roundCeiling(0.2, floor: 1), 1)
+        XCTAssertEqual(LimitMath.roundCeiling(3.2, floor: 1), 5)
+        XCTAssertEqual(LimitMath.roundCeiling(12, floor: 1), 20)
+        XCTAssertEqual(LimitMath.roundCeiling(100, floor: 1), 100)
+        XCTAssertEqual(LimitMath.roundCeiling(640, floor: 1), 1000)
+        XCTAssertEqual(LimitMath.roundCeiling(.nan, floor: 1), 1)
+    }
+}
+
+final class HistoryPointTests: XCTestCase {
+    func testKeepsOnlyWhatTheGraphsNeed() {
+        let snapshot = Snapshot(
+            date: Date(timeIntervalSince1970: 100),
+            cpu: CPUReading(total: 0.25, cores: [], loadAverage: []),
+            memory: nil, gpu: nil,
+            temperatures: [TemperatureReading(key: "Tp01", name: "Tp01", group: .cpu, celsius: 61)],
+            fans: [FanReading(id: 0, rpm: 2100, minRPM: 1200, maxRPM: 6000)],
+            power: PowerReading(systemWatts: 20, adapterWatts: nil, cpuWatts: 6, gpuWatts: 2),
+            battery: nil, apps: [],
+            network: NetworkReading(downloadBytesPerSecond: 1000, uploadBytesPerSecond: 10))
+        let point = HistoryPoint(snapshot)
+        XCTAssertEqual(point.date, snapshot.date)
+        XCTAssertEqual(point.cpu, 0.25)
+        XCTAssertNil(point.memory)
+        XCTAssertEqual(point.hottestCelsius, 61)
+        XCTAssertEqual(point.systemWatts, 20)
+        XCTAssertEqual(point.chipWatts, 8)
+        XCTAssertEqual(point.fanRPM, 2100)
+        XCTAssertEqual(point.downloadBytesPerSecond, 1000)
+        XCTAssertEqual(point.uploadBytesPerSecond, 10)
+    }
+
+    func testNoChipPowerWithoutEitherReading() {
+        let snapshot = Snapshot(date: Date(), cpu: nil, memory: nil, gpu: nil, temperatures: [], fans: [],
+                                power: PowerReading(systemWatts: 20, adapterWatts: nil, cpuWatts: nil, gpuWatts: nil),
+                                battery: nil, apps: [])
+        XCTAssertNil(HistoryPoint(snapshot).chipWatts)
+    }
+
+    func testTheSamplerShowsLoadedHistoryOldestFirst() {
+        let sampler = Sampler()
+        let points = (0..<5).map { HistoryPoint(date: Date(timeIntervalSince1970: Double($0)), cpu: Double($0) / 10) }
+        sampler.load(latest: .empty, history: points, limits: MachineLimits(adapterWatts: 96, chipWatts: 60))
+        XCTAssertEqual(sampler.history, points)
+        XCTAssertEqual(sampler.limits.systemWatts, 96)
     }
 }
 

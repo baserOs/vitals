@@ -185,10 +185,16 @@ public struct BatteryReading: Sendable, Equatable {
     }
 }
 
-public struct ProcessReading: Sendable, Equatable, Identifiable {
+/// The two figures a process list is sorted by.
+public protocol ProcessFigures {
+    /// 1.0 is one full core, so this can exceed 1.
+    var cpu: Double { get }
+    var memoryBytes: UInt64 { get }
+}
+
+public struct ProcessReading: Sendable, Equatable, Identifiable, ProcessFigures {
     public let pid: Int32
     public let name: String
-    /// 1.0 is one full core, so this can exceed 1.
     public let cpu: Double
     public let memoryBytes: UInt64
 
@@ -202,15 +208,37 @@ public struct ProcessReading: Sendable, Equatable, Identifiable {
     }
 }
 
+/// An app and the processes that work for it, added up.
+public struct ProcessGroup: Sendable, Equatable, Identifiable, ProcessFigures {
+    /// Stable for as long as the app runs.
+    public let id: String
+    public let name: String
+    public let cpu: Double
+    public let memoryBytes: UInt64
+    /// The busiest of its processes. May be fewer than `processCount`.
+    public let members: [ProcessReading]
+    public let processCount: Int
+
+    public init(id: String, name: String, cpu: Double, memoryBytes: UInt64,
+                members: [ProcessReading], processCount: Int) {
+        self.id = id
+        self.name = name
+        self.cpu = cpu
+        self.memoryBytes = memoryBytes
+        self.members = members
+        self.processCount = processCount
+    }
+}
+
 public enum ProcessOrder: Sendable {
     case cpu
     case memory
 }
 
-extension Array where Element == ProcessReading {
-    /// The top `limit` processes, highest first. Ties fall back to the
-    /// other figure and then the pid, so equal rows never swap places.
-    public func ranked(by order: ProcessOrder, limit: Int) -> [ProcessReading] {
+extension Array where Element: ProcessFigures & Identifiable, Element.ID: Comparable {
+    /// The top `limit` entries, highest first. Ties fall back to the other
+    /// figure and then the id, so equal rows never swap places.
+    public func ranked(by order: ProcessOrder, limit: Int) -> [Element] {
         let ordered = sorted { first, second in
             switch order {
             case .cpu:
@@ -220,9 +248,46 @@ extension Array where Element == ProcessReading {
                 if first.memoryBytes != second.memoryBytes { return first.memoryBytes > second.memoryBytes }
                 if first.cpu != second.cpu { return first.cpu > second.cpu }
             }
-            return first.pid < second.pid
+            return first.id < second.id
         }
         return Array(ordered.prefix(Swift.max(0, limit)))
+    }
+
+    /// The top `limit` by CPU together with the top `limit` by memory,
+    /// without repeats: enough to show either order.
+    public func busiest(limit: Int) -> [Element] {
+        var seen = Set<Element.ID>()
+        var result: [Element] = []
+        for entry in ranked(by: .cpu, limit: limit) + ranked(by: .memory, limit: limit)
+        where seen.insert(entry.id).inserted {
+            result.append(entry)
+        }
+        return result
+    }
+}
+
+/// One app's share of the GPU.
+public struct GPUProcessReading: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let name: String
+    /// 0...1 of the whole GPU.
+    public let usage: Double
+
+    public init(id: String, name: String, usage: Double) {
+        self.id = id
+        self.name = name
+        self.usage = usage
+    }
+}
+
+/// Traffic over the network right now.
+public struct NetworkReading: Sendable, Equatable {
+    public let downloadBytesPerSecond: Double
+    public let uploadBytesPerSecond: Double
+
+    public init(downloadBytesPerSecond: Double, uploadBytesPerSecond: Double) {
+        self.downloadBytesPerSecond = downloadBytesPerSecond
+        self.uploadBytesPerSecond = uploadBytesPerSecond
     }
 }
 
@@ -237,11 +302,16 @@ public struct Snapshot: Sendable, Equatable {
     public let fans: [FanReading]
     public let power: PowerReading?
     public let battery: BatteryReading?
-    public let processes: [ProcessReading]
+    /// The busiest apps. Collected only while a window that lists them is open.
+    public let apps: [ProcessGroup]
+    /// The apps using the GPU most. Collected along with `apps`.
+    public let gpuApps: [GPUProcessReading]
+    public let network: NetworkReading?
 
     public init(date: Date, cpu: CPUReading?, memory: MemoryReading?, gpu: GPUReading?,
                 temperatures: [TemperatureReading], fans: [FanReading], power: PowerReading?,
-                battery: BatteryReading?, processes: [ProcessReading]) {
+                battery: BatteryReading?, apps: [ProcessGroup], gpuApps: [GPUProcessReading] = [],
+                network: NetworkReading? = nil) {
         self.date = date
         self.cpu = cpu
         self.memory = memory
@@ -250,11 +320,13 @@ public struct Snapshot: Sendable, Equatable {
         self.fans = fans
         self.power = power
         self.battery = battery
-        self.processes = processes
+        self.apps = apps
+        self.gpuApps = gpuApps
+        self.network = network
     }
 
     public static let empty = Snapshot(date: Date(timeIntervalSince1970: 0), cpu: nil, memory: nil, gpu: nil,
-                                       temperatures: [], fans: [], power: nil, battery: nil, processes: [])
+                                       temperatures: [], fans: [], power: nil, battery: nil, apps: [])
 
     public var hottest: TemperatureReading? {
         temperatures.max { $0.celsius < $1.celsius }
@@ -268,5 +340,52 @@ public struct Snapshot: Sendable, Equatable {
     public var fanLimit: Double? {
         let highest = fans.map(\.maxRPM).filter { $0.isFinite }.max() ?? 0
         return highest > 0 ? highest : nil
+    }
+}
+
+/// The few numbers the history graphs need from one snapshot. Keeping
+/// these, not whole snapshots, keeps ten minutes of history small.
+public struct HistoryPoint: Sendable, Equatable {
+    public let date: Date
+    /// 0...1
+    public let cpu: Double?
+    /// 0...1
+    public let memory: Double?
+    public let hottestCelsius: Double?
+    public let systemWatts: Double?
+    /// CPU and GPU together.
+    public let chipWatts: Double?
+    public let fanRPM: Double?
+    public let downloadBytesPerSecond: Double?
+    public let uploadBytesPerSecond: Double?
+
+    public init(date: Date, cpu: Double? = nil, memory: Double? = nil, hottestCelsius: Double? = nil,
+                systemWatts: Double? = nil, chipWatts: Double? = nil, fanRPM: Double? = nil,
+                downloadBytesPerSecond: Double? = nil, uploadBytesPerSecond: Double? = nil) {
+        self.date = date
+        self.cpu = cpu
+        self.memory = memory
+        self.hottestCelsius = hottestCelsius
+        self.systemWatts = systemWatts
+        self.chipWatts = chipWatts
+        self.fanRPM = fanRPM
+        self.downloadBytesPerSecond = downloadBytesPerSecond
+        self.uploadBytesPerSecond = uploadBytesPerSecond
+    }
+
+    public init(_ snapshot: Snapshot) {
+        var chip: Double?
+        if let power = snapshot.power, power.cpuWatts != nil || power.gpuWatts != nil {
+            chip = (power.cpuWatts ?? 0) + (power.gpuWatts ?? 0)
+        }
+        self.init(date: snapshot.date,
+                  cpu: snapshot.cpu?.total,
+                  memory: snapshot.memory?.usedFraction,
+                  hottestCelsius: snapshot.hottest?.celsius,
+                  systemWatts: snapshot.power?.systemWatts,
+                  chipWatts: chip,
+                  fanRPM: snapshot.fastestFan?.rpm,
+                  downloadBytesPerSecond: snapshot.network?.downloadBytesPerSecond,
+                  uploadBytesPerSecond: snapshot.network?.uploadBytesPerSecond)
     }
 }

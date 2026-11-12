@@ -34,5 +34,10 @@ let package = Package(
             name: "VitalisCoreTests",
             dependencies: ["VitalisCore"]
         ),
+        // Draws the screens with sample data. Skipped unless asked for.
+        .testTarget(
+            name: "VitalisAppTests",
+            dependencies: ["Vitalis", "VitalisCore"]
+        ),
     ]
 )

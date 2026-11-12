@@ -42,7 +42,7 @@ final class FormatTests: XCTestCase {
             ],
             fans: [FanReading(id: 0, rpm: 0, minRPM: 1200, maxRPM: 6000)],
             power: PowerReading(systemWatts: 14.2, adapterWatts: nil, cpuWatts: nil, gpuWatts: nil),
-            battery: nil, processes: []
+            battery: nil, apps: []
         )
         XCTAssertEqual(Format.menuBar(snapshot, fields: [.temperature, .watts], unit: .celsius), "62°C  14.2 W")
         XCTAssertEqual(Format.menuBar(snapshot, fields: [.fan], unit: .celsius), "0 rpm")

@@ -116,7 +116,7 @@ struct WindowVisibilityReporter: NSViewRepresentable {
         /// entered. Does nothing if the system draws no such panel.
         private func applyBackdropOpacity() {
             guard let window = window, let content = window.contentView else { return }
-            let alpha = CGFloat(min(1, max(0.2, backdropOpacity)))
+            let alpha = CGFloat(min(1, max(0.1, backdropOpacity)))
             var pending: [NSView] = [content.superview ?? content]
             var visited = 0
             while let view = pending.popLast(), visited < 200 {
