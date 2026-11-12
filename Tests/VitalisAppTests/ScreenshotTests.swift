@@ -44,8 +44,11 @@ final class ScreenshotTests: XCTestCase {
                 .environment(\.colorScheme, scheme)
             try save(popover, as: "popover-\(name)", in: folder)
 
-            // What a click unfolds: an app's processes and the full sensor list.
+            // What a click unfolds: an app's processes and the full sensor
+            // list. Above them, the list in its other order.
             let unfolded = VStack(alignment: .leading, spacing: 12) {
+                ProcessesSection(snapshot: SampleData.snapshot, limit: 20, sortByMemory: true)
+                    .environment(\.cardStyle, .soft)
                 ForEach(SampleData.snapshot.apps.ranked(by: .memory, limit: 2)) { group in
                     ProcessGroupRow(group: group, order: .memory, isOpen: true) {}
                 }
@@ -109,8 +112,9 @@ enum SampleData {
         sensor("TaLP", 41)
         sensor("TaRF", 44)
         sensor("TW0P", 46)
-        for name in ["PMU tdie1", "PMU tdie2", "PMU tdev1", "PMU tcal", "gas gauge battery", "NAND CH0 temp"] {
-            sensor("hid:" + name, 40 + Double(name.count))
+        for (name, celsius) in [("PMU tdie1", 62.0), ("PMU tdie2", 60), ("PMU tdev1", 48), ("PMU tcal", 45),
+                                ("gas gauge battery", 31.5), ("NAND CH0 temp", 44)] {
+            sensor("hid:" + name, celsius)
         }
 
         func app(_ name: String, _ members: [(String, Double, Double)]) -> ProcessGroup {

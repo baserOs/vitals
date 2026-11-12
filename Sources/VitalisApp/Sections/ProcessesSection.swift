@@ -72,7 +72,8 @@ struct ProcessGroupRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!canOpen)
+            // Not `disabled`: that would grey out every app with one process.
+            .allowsHitTesting(canOpen)
             .help(canOpen ? "Show the \(group.processCount) processes of \(group.name)" : group.name)
 
             if isOpen, canOpen {
